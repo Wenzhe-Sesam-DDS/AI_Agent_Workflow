@@ -21,14 +21,19 @@ class AssistantAgent(BaseAgent):
     ) -> None:
         super().__init__()
         self._model = model
-        self._client = client or anthropic.AsyncAnthropic()
+        self._client = client
+
+    def _get_client(self) -> anthropic.AsyncAnthropic:
+        if self._client is None:
+            self._client = anthropic.AsyncAnthropic()
+        return self._client
 
     async def run(self, task: str, **kwargs: Any) -> str:
         logger.info("AssistantAgent running task: {!r}", task)
 
         messages: list[dict[str, str]] = [{"role": "user", "content": task}]
 
-        response = await self._client.messages.create(
+        response = await self._get_client().messages.create(
             model=self._model,
             max_tokens=1024,
             messages=messages,  # type: ignore[arg-type]

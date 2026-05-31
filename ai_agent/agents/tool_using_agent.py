@@ -31,8 +31,13 @@ class ToolUsingAgent(BaseAgent):
         super().__init__()
         self._model = model
         self._max_iterations = max_iterations
-        self._client = client or anthropic.AsyncAnthropic()
+        self._client = client
         self._tools: dict[str, BaseTool] = {t.name: t for t in get_all_tools()}
+
+    def _get_client(self) -> anthropic.AsyncAnthropic:
+        if self._client is None:
+            self._client = anthropic.AsyncAnthropic()
+        return self._client
 
     # ------------------------------------------------------------------
     # Build Anthropic-format tool specs
@@ -57,7 +62,7 @@ class ToolUsingAgent(BaseAgent):
         logger.info("ToolUsingAgent task: {!r}", task)
 
         for step in range(self._max_iterations):
-            response = await self._client.messages.create(
+            response = await self._get_client().messages.create(
                 model=self._model,
                 max_tokens=2048,
                 tools=self._tool_specs(),

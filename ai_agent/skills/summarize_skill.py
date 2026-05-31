@@ -15,11 +15,16 @@ class SummarizeSkill(BaseSkill):
     description = "Summarizes a block of text using Claude."
 
     def __init__(self, client: anthropic.AsyncAnthropic | None = None) -> None:
-        self._client = client or anthropic.AsyncAnthropic()
+        self._client = client
+
+    def _get_client(self) -> anthropic.AsyncAnthropic:
+        if self._client is None:
+            self._client = anthropic.AsyncAnthropic()
+        return self._client
 
     async def execute(self, text: str, max_words: int = 100, **kwargs: Any) -> str:  # type: ignore[override]
         logger.debug("SummarizeSkill: summarizing {} chars", len(text))
-        message = await self._client.messages.create(
+        message = await self._get_client().messages.create(
             model="claude-opus-4-5",
             max_tokens=256,
             messages=[
