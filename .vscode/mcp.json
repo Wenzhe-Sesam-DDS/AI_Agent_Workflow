@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "ai-agent-mcp": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "-m",
+        "ai_agent.mcp.server"
+      ],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    }
+  }
+}
