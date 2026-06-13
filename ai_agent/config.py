@@ -28,6 +28,14 @@ class Settings(BaseSettings):
         default="claude-opus-4-5", description="Default Claude model"
     )
 
+    # ---- Ollama (local LLM) ----
+    ollama_base_url: str = Field(
+        default="http://localhost:11434/v1", description="Ollama OpenAI-compatible endpoint"
+    )
+    ollama_model: str = Field(
+        default="qwen3.5:9b", description="Default Ollama model name"
+    )
+
     # ---- MCP server ----
     mcp_server_host: str = "0.0.0.0"
     mcp_server_port: int = 8080
