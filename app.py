@@ -92,8 +92,10 @@ def _history_markdown() -> str:
         lines.append(f"### 📅 {s['date']} &nbsp; *({len(msgs)//2} 轮对话)*")
         for m in msgs:
             icon = "👤" if m["role"] == "user" else "🤖"
-            preview = m["content"][:160].replace("\n", " ")
-            if len(m["content"]) > 160:
+            raw = m["content"]
+            text = raw if isinstance(raw, str) else " ".join(str(c) for c in raw)
+            preview = text[:160].replace("\n", " ")
+            if len(text) > 160:
                 preview += "…"
             lines.append(f"{icon} **{m['role']}**: {preview}")
         lines.append("")
@@ -191,6 +193,24 @@ def _history_to_messages(chat_history: list, system_prompt: str, user_message: s
     return messages
 
 
+def _read_uploaded_file(file_obj: Any) -> tuple[str, str] | None:
+    """Read an uploaded file and return (filename, content). Returns None if no file."""
+    if file_obj is None:
+        return None
+    # Gradio 6 File component returns a dict with 'name' (temp path) and 'orig_name'
+    if isinstance(file_obj, dict):
+        path = file_obj.get("name") or file_obj.get("path", "")
+        orig_name = file_obj.get("orig_name") or Path(path).name
+    else:
+        path = getattr(file_obj, "name", str(file_obj))
+        orig_name = Path(path).name
+    try:
+        content = Path(path).read_text(encoding="utf-8", errors="replace")
+        return orig_name, content
+    except Exception as exc:
+        return orig_name, f"[Error reading file: {exc}]"
+
+
 async def respond(
     user_message: str,
     chat_history: list,
@@ -217,19 +237,49 @@ async def respond(
 # Streaming variant (simple mode only)
 # ---------------------------------------------------------------------------
 
+def _read_uploaded_file(file_obj: Any) -> tuple[str, str] | None:
+    """Read an uploaded file and return (filename, content). Returns None if no file."""
+    if file_obj is None:
+        return None
+    if isinstance(file_obj, dict):
+        path = file_obj.get("name") or file_obj.get("path", "")
+        orig_name = file_obj.get("orig_name") or Path(path).name
+    else:
+        path = getattr(file_obj, "name", str(file_obj))
+        orig_name = Path(path).name
+    try:
+        content = Path(path).read_text(encoding="utf-8", errors="replace")
+        return orig_name, content
+    except Exception as exc:
+        return orig_name, f"[Error reading file: {exc}]"
+
+
 async def respond_stream(
     user_message: str,
     chat_history: list,
     use_tools: bool,
     system_prompt: str,
+    uploaded_file: Any = None,
 ):
     """Yields partial responses for streaming display in simple mode."""
-    if not user_message.strip():
+    effective_message = user_message.strip()
+    display_message = effective_message
+
+    file_info = _read_uploaded_file(uploaded_file)
+    if file_info:
+        fname, fcontent = file_info
+        file_block = f"<file: {fname}>\n\n{fcontent}"
+        effective_message = (f"{effective_message}\n\n---\n{file_block}"
+                             if effective_message else file_block)
+        display_message = (f"📎 **{fname}**\n\n{user_message.strip()}"
+                           if user_message.strip() else f"📎 **{fname}**")
+
+    if not effective_message:
         yield "", chat_history
         return
 
-    messages = _history_to_messages(chat_history, system_prompt, user_message)
-    user_turn = {"role": "user", "content": user_message}
+    messages = _history_to_messages(chat_history, system_prompt, effective_message)
+    user_turn = {"role": "user", "content": display_message}
 
     if use_tools:
         answer = await _run_with_tools(messages)
@@ -346,21 +396,60 @@ CUSTOM_CSS = """
     line-height: 1.5 !important;
 }
 
-/* Align send button to bottom of input */
-#send-col {
-    display: flex;
-    align-items: flex-end;
+/* ── Action column (right side of input row) ──────── */
+#action-col {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+    align-self: stretch !important;
+    justify-content: flex-end !important;
+    min-width: 120px !important;
+    max-width: 120px !important;
+    flex-shrink: 0 !important;
+}
+#icon-row {
+    display: flex !important;
+    gap: 6px !important;
 }
 
-/* Clear button */
-#clear-btn { opacity: 0.65; font-size: 0.82rem; }
-#clear-btn:hover { opacity: 1; }
+/* Shared icon button base */
+.icon-action-btn button, .icon-action-btn {
+    height: 40px !important;
+    min-height: 40px !important;
+    width: 100% !important;
+    border-radius: var(--radius-sm) !important;
+    border: 1px solid var(--border) !important;
+    background: rgba(255,255,255,0.06) !important;
+    color: rgba(255,255,255,0.65) !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.2px !important;
+    cursor: pointer !important;
+    transition: border-color .15s, background .15s, color .15s, box-shadow .15s !important;
+    padding: 0 10px !important;
+}
+.icon-action-btn button:hover, .icon-action-btn:hover {
+    border-color: var(--accent) !important;
+    background: rgba(124,106,255,0.18) !important;
+    color: rgba(255,255,255,0.95) !important;
+    box-shadow: 0 0 0 2px rgba(124,106,255,0.15) !important;
+}
 
 /* Example chips */
 .example-chip { cursor: pointer; }
 
 /* Chatbot bubbles */
 .message-bubble-border { border-radius: var(--radius-lg) !important; }
+
+/* upload UploadButton — inherits .icon-action-btn base */
+#upload-btn { flex: 1 !important; }
+#upload-btn button { width: 100% !important; }
+
+/* Drag-over highlight on the whole input row */
+#msg-input.drag-active textarea {
+    border-color: var(--c-accent) !important;
+    box-shadow: 0 0 0 3px var(--c-accent-glow) !important;
+}
 
 /* Hide footer */
 footer { display: none !important; }
@@ -447,20 +536,36 @@ def build_app() -> gr.Blocks:
                                 elem_id="msg-input",
                                 autofocus=True,
                             )
-                            with gr.Column(scale=1, min_width=90, elem_id="send-col"):
+                            with gr.Column(
+                                scale=0,
+                                min_width=120,
+                                elem_id="action-col",
+                            ):
+                                with gr.Row(elem_id="icon-row"):
+                                    upload_file = gr.UploadButton(
+                                        "📎 附件",
+                                        file_types=[".txt", ".py", ".md", ".json",
+                                                    ".csv", ".yaml", ".yml", ".toml",
+                                                    ".log", ".xml", ".html", ".js",
+                                                    ".ts", ".css", ".sh", ".bat"],
+                                        file_count="single",
+                                        elem_id="upload-btn",
+                                        elem_classes=["icon-action-btn"],
+                                        scale=1,
+                                        min_width=0,
+                                    )
+                                    clear_btn = gr.Button(
+                                        "🗑️ 清空",
+                                        elem_id="clear-btn",
+                                        elem_classes=["icon-action-btn"],
+                                        scale=1,
+                                        min_width=0,
+                                    )
                                 send_btn = gr.Button(
                                     "发送 ↑",
                                     variant="primary",
                                     elem_id="send-btn",
                                 )
-
-                        with gr.Row():
-                            clear_btn = gr.Button(
-                                "🗑️ 清空对话",
-                                size="sm",
-                                elem_id="clear-btn",
-                            )
-                            gr.Markdown("", scale=4)
 
                 # Wire example buttons
                 for i, btn in enumerate(
@@ -541,7 +646,7 @@ class MyTool(BaseTool):
                 """)
 
         # ── Events ───────────────────────────────────────────────────────────
-        submit_inputs = [msg_box, chatbot, use_tools, system_prompt]
+        submit_inputs = [msg_box, chatbot, use_tools, system_prompt, upload_file]
         submit_outputs = [msg_box, chatbot]
 
         msg_box.submit(respond_stream, submit_inputs, submit_outputs)
