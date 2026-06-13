@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ai-agent"
 version = "0.1.0"
-description = "Python AI Agent 框架：支持本地 Ollama 模型与 Claude API，内置 Web GUI、工具调用、技能模块与 MCP 协议服务端。"
+description = "Python AI Agent framework with local Ollama LLM support, Claude API, Gradio Web GUI, tool calling, skills, and MCP server."
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.28",

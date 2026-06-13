@@ -1,6 +1,420 @@
 # AI Agent Framework
 
-一个基于 Python 的 AI Agent 框架，支持本地大模型（Ollama）和云端 Claude API，内置 Web GUI、工具调用、技能模块与 MCP 协议服务端。
+A Python framework for building AI agents with local LLM support (Ollama), Claude API, a Gradio Web GUI, tool calling, skill modules, and an MCP (Model Context Protocol) server.
+
+---
+
+## Table of Contents
+
+1. [Features](#features)
+2. [Quick Start](#quick-start)
+3. [Web GUI](#web-gui)
+4. [Configuration](#configuration)
+5. [CLI Commands](#cli-commands)
+6. [Programmatic Usage](#programmatic-usage)
+7. [Project Structure](#project-structure)
+8. [Built-in Components](#built-in-components)
+9. [Extending the Framework](#extending-the-framework)
+10. [MCP Server](#mcp-server)
+11. [Testing](#testing)
+12. [Dependencies](#dependencies)
+
+---
+
+## Features
+
+- **Local LLM support** — run any Ollama model (e.g. `qwen3.5:9b`) entirely offline, no API key required
+- **Cloud Claude support** — use any Claude model via the Anthropic API
+- **Web GUI** — modern dark-themed chat interface built with Gradio; streaming output, conversation history, tool calling
+- **Agentic tool calling** — agents autonomously decide which tools to call (fetch URLs, read files, etc.)
+- **Skills** — reusable capability modules that can be attached to any agent
+- **MCP server** — exposes all tools as MCP endpoints, compatible with VS Code Copilot Chat and Claude Desktop
+- **Auto-discovery** — drop a new file into `tools/` or `skills/` and it is registered automatically; no config changes needed
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- (local mode) [Ollama](https://ollama.com/) installed and running
+- (cloud mode) an [Anthropic API key](https://console.anthropic.com/)
+
+### Installation
+
+```powershell
+# 1. Create and activate a virtual environment
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# 2. Install the package and all dev dependencies
+pip install -e ".[dev]"
+```
+
+The `-e` flag installs in editable mode — code changes take effect immediately without reinstalling.
+
+### Local model (recommended)
+
+```powershell
+# Start Ollama
+ollama serve
+
+# Pull the model (first time only)
+ollama pull qwen3.5:9b
+
+# Run an example
+python examples/01_simple_assistant.py
+```
+
+### Launch the Web GUI
+
+```powershell
+python app.py
+# Browser opens automatically at http://127.0.0.1:7860
+```
+
+---
+
+## Web GUI
+
+Running `python app.py` starts a Gradio-based web interface:
+
+| Tab | What it does |
+|-----|--------------|
+| 💬 Chat | Streaming chat; Shift+Enter for newline; toggle tool-calling mode |
+| 📜 History | Browse all past conversations by date (auto-saved to `data/chat_history.json`) |
+| 🛠️ Tools | View every registered tool — name, description, and JSON Schema |
+| ℹ️ About | Architecture diagram and current configuration values |
+
+**Additional features:**
+- Ollama connection status badge on load (🟢 / 🟡 / 🔴)
+- Last session auto-restored on page refresh
+- Multi-line resizable input box
+- Resizable chat window (drag bottom-right corner)
+
+---
+
+## Configuration
+
+All settings are read from environment variables or a `.env` file in the project root:
+
+```dotenv
+# ── Cloud Claude (optional) ─────────────────────────────
+ANTHROPIC_API_KEY=sk-ant-...        # Anthropic API key
+ANTHROPIC_MODEL=claude-opus-4-5     # Default Claude model
+
+# ── Local Ollama (default) ──────────────────────────────
+OLLAMA_BASE_URL=http://localhost:11434/v1  # Ollama OpenAI-compatible endpoint
+OLLAMA_MODEL=qwen3.5:9b                   # Local model name
+
+# ── MCP server ──────────────────────────────────────────
+MCP_SERVER_HOST=0.0.0.0
+MCP_SERVER_PORT=8080
+
+# ── Logging ─────────────────────────────────────────────
+LOG_LEVEL=INFO    # DEBUG | INFO | WARNING | ERROR
+```
+
+Access settings anywhere in code:
+
+```python
+from ai_agent.config import settings
+print(settings.ollama_model)
+print(settings.anthropic_api_key)
+```
+
+---
+
+## CLI Commands
+
+After installation, the `ai-agent` entry point is available:
+
+| Command | Description |
+|---------|-------------|
+| `ai-agent ask "<question>"` | Run `AssistantAgent` (Claude, no tools) |
+| `ai-agent tool-ask "<task>"` | Run `ToolUsingAgent` (Claude + tool calling) |
+| `ai-agent list-tools` | List all registered tools |
+| `ai-agent mcp-serve` | Start the MCP stdio server |
+
+```powershell
+# Examples
+ai-agent ask "What is the GIL in Python?"
+ai-agent tool-ask "Fetch https://example.com and summarise its content"
+ai-agent list-tools
+```
+
+You can also call the CLI directly as a module:
+
+```powershell
+python -m ai_agent.cli ask "Explain async/await in two sentences."
+```
+
+---
+
+## Programmatic Usage
+
+### Using a local Ollama model
+
+```python
+import asyncio
+from ai_agent.agents.ollama_agent import OllamaAgent
+from ai_agent.agents.ollama_tool_agent import OllamaToolAgent
+from ai_agent.config import settings
+
+async def main():
+    # Plain chat, no tools
+    agent = OllamaAgent(model=settings.ollama_model)
+    answer = await agent.run("Explain quantum entanglement in two sentences.")
+    print(answer)
+
+    # Agentic tool calling
+    tool_agent = OllamaToolAgent(model=settings.ollama_model)
+    result = await tool_agent.run("Fetch https://example.com and summarise its content.")
+    print(result)
+
+asyncio.run(main())
+```
+
+### Using cloud Claude
+
+```python
+import asyncio
+from ai_agent.agents.assistant_agent import AssistantAgent
+from ai_agent.config import settings
+
+async def main():
+    agent = AssistantAgent(model=settings.anthropic_model)
+    answer = await agent.run("Summarise the Zen of Python.")
+    print(answer)
+
+asyncio.run(main())
+```
+
+### Attaching a skill
+
+```python
+from ai_agent.agents.ollama_agent import OllamaAgent
+from ai_agent.skills.summarize_skill import SummarizeSkill
+
+agent = OllamaAgent()
+agent.register_skill(SummarizeSkill())
+```
+
+### Example scripts
+
+| File | What it demonstrates |
+|------|----------------------|
+| [examples/01_simple_assistant.py](examples/01_simple_assistant.py) | `OllamaAgent` basic chat |
+| [examples/02_tool_using_agent.py](examples/02_tool_using_agent.py) | `ToolUsingAgent` fetching a URL autonomously |
+| [examples/03_mcp_server_demo.py](examples/03_mcp_server_demo.py) | Starting the MCP server programmatically |
+
+```powershell
+python examples/01_simple_assistant.py
+python examples/02_tool_using_agent.py
+```
+
+---
+
+## Project Structure
+
+```
+AI_Agent_Workflow/
+├── app.py                       # Gradio Web GUI entry point
+├── pyproject.toml               # Project metadata and dependencies
+├── .env                         # Local config (not committed to Git)
+│
+├── ai_agent/
+│   ├── agents/
+│   │   ├── base_agent.py        # Abstract base: register_skill/tool, run()
+│   │   ├── assistant_agent.py   # Claude chat agent (no tools)
+│   │   ├── tool_using_agent.py  # Claude agent with tool-calling loop
+│   │   ├── ollama_agent.py      # Local Ollama chat agent ★
+│   │   └── ollama_tool_agent.py # Local Ollama agent with tool calling ★
+│   ├── skills/
+│   │   ├── base_skill.py        # Abstract base: execute()
+│   │   └── summarize_skill.py   # Text summarisation skill (Claude)
+│   ├── tools/
+│   │   ├── base_tool.py         # Abstract base: run(), input_schema()
+│   │   ├── echo_tool.py         # Echo input back (useful for testing)
+│   │   ├── fetch_url_tool.py    # HTTP GET a URL and return response text
+│   │   └── read_file_tool.py    # Read a local UTF-8 file
+│   ├── mcp/
+│   │   └── server.py            # MCP server — auto-exposes all tools
+│   ├── config.py                # Pydantic Settings — reads from .env
+│   ├── logging_config.py        # Loguru logging setup
+│   ├── registry.py              # Tool/skill auto-discovery
+│   ├── cli.py                   # ai-agent CLI entry point
+│   └── main.py                  # Quick demo entry point
+│
+├── examples/                    # Standalone runnable scripts
+├── tests/                       # Pytest test suite
+└── data/                        # Runtime data (not committed to Git)
+    └── chat_history.json        # GUI conversation history (auto-generated)
+```
+
+★ = added in this fork
+
+**Auto-discovery:** `registry.py` scans `tools/` and `skills/` at startup and instantiates every concrete `BaseTool` / `BaseSkill` subclass found. Adding a new tool only requires creating a file in the right folder.
+
+---
+
+## Built-in Components
+
+### Agents
+
+| Class | Backend | Tool calling | Notes |
+|-------|---------|--------------|-------|
+| `OllamaAgent` | Ollama (local) | ❌ | Streaming chat, no API key needed |
+| `OllamaToolAgent` | Ollama (local) | ✅ | Up to 10 tool-call iterations |
+| `AssistantAgent` | Claude API | ❌ | Requires `ANTHROPIC_API_KEY` |
+| `ToolUsingAgent` | Claude API | ✅ | Requires `ANTHROPIC_API_KEY` |
+
+### Tools
+
+| Name | Class | Description |
+|------|-------|-------------|
+| `echo` | `EchoTool` | Returns input unchanged — useful for testing |
+| `fetch_url` | `FetchUrlTool` | HTTP GET a URL; optional `timeout` (default 10 s) |
+| `read_file` | `ReadFileTool` | Read a local file; optional `max_bytes` (default 100 000) |
+
+### Skills
+
+| Name | Class | Description |
+|------|-------|-------------|
+| `summarize` | `SummarizeSkill` | Summarise text via Claude; optional `max_words` (default 100) |
+
+---
+
+## Extending the Framework
+
+### Adding a tool
+
+Create `ai_agent/tools/my_tool.py`:
+
+```python
+from __future__ import annotations
+from typing import Any
+from ai_agent.tools.base_tool import BaseTool
+
+class MyTool(BaseTool):
+    name = "my_tool"
+    description = "One-line description shown to the LLM."
+
+    async def run(self, param: str) -> str:          # type: ignore[override]
+        return f"Result: {param}"
+
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "param": {"type": "string", "description": "Input parameter"},
+            },
+            "required": ["param"],
+        }
+```
+
+No further steps needed. The tool is auto-registered on the next run.
+
+### Adding a skill
+
+Create `ai_agent/skills/my_skill.py`:
+
+```python
+from __future__ import annotations
+from typing import Any
+from ai_agent.skills.base_skill import BaseSkill
+
+class MySkill(BaseSkill):
+    name = "my_skill"
+    description = "Short description."
+
+    async def execute(self, input_text: str, **kwargs: Any) -> str:
+        return input_text.upper()
+```
+
+### Adding an agent
+
+Create `ai_agent/agents/my_agent.py`, subclass `BaseAgent`, and implement `run()`. Agents are not auto-discovered — import and instantiate them explicitly.
+
+---
+
+## MCP Server
+
+The MCP server exposes all registered tools as MCP endpoints over stdio, making them available to VS Code Copilot Chat, Claude Desktop, and any other MCP-compatible client.
+
+```powershell
+# Via CLI
+ai-agent mcp-serve
+
+# Or via module
+python -m ai_agent.mcp.server
+```
+
+**VS Code integration** — add `.vscode/mcp.json` to your workspace:
+
+```json
+{
+  "servers": {
+    "ai-agent": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "ai_agent.mcp.server"]
+    }
+  }
+}
+```
+
+Once connected, VS Code Copilot Chat can call `fetch_url`, `read_file`, and any other registered tools directly from the chat panel.
+
+---
+
+## Testing
+
+```powershell
+# Run the full test suite
+pytest tests/ -v
+
+# Run a single test file
+pytest tests/test_echo_tool.py -v
+
+# With coverage (requires pytest-cov)
+pytest tests/ --cov=ai_agent --cov-report=term-missing
+```
+
+Tests use `pytest-asyncio` with `asyncio_mode = "auto"` — `async def test_*` functions work without extra decorators.
+
+---
+
+## Dependencies
+
+### Runtime
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `anthropic` | ≥0.28 | Claude API client (cloud mode) |
+| `openai` | ≥1.0 | Ollama OpenAI-compatible API client (local mode) |
+| `mcp` | ≥1.0 | Model Context Protocol SDK |
+| `pydantic` | ≥2.0 | Data validation and serialisation |
+| `pydantic-settings` | ≥2.0 | Load settings from `.env` |
+| `httpx` | ≥0.27 | Async HTTP client (`FetchUrlTool`, Ollama status check) |
+| `python-dotenv` | ≥1.0 | `.env` file loading |
+| `loguru` | ≥0.7 | Structured logging |
+| `gradio` | ≥6.0 | Web GUI framework |
+
+### Development
+
+| Package | Purpose |
+|---------|---------|
+| `pytest` | Test framework |
+| `pytest-asyncio` | Async test support |
+| `ruff` | Linter |
+| `black` | Code formatter |
+
+---
+
+See [claude.md](claude.md) for full coding conventions.
+
 
 ---
 
